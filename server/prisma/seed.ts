@@ -223,49 +223,42 @@ async function main() {
     }),
   )
 
-  // Function to generate realistic time cards for a project
-  function generateTimeCards(
+  function generateTimeCardsGlobally(
     users: User[],
     projects: Project[],
-    startDate: Date,
-    endDate: Date,
+    maxTimeCards: number,
   ) {
     const timeCards: Prisma.TimeCardCreateInput[] = []
-    const MAX_TIME_CARDS = 60
-
-    if (!users.length) {
-      console.warn('No users provided for time card generation')
-      return timeCards
-    }
-
-    // Calculate how many time cards per user to stay under MAX_TIME_CARDS
-    const timeCardsPerUser = Math.floor(MAX_TIME_CARDS / users.length)
-    const workDaysPerUser = Math.min(timeCardsPerUser, 5) // Use minimum of 5 or calculated amount
+    const workDaysPerUser = Math.ceil(maxTimeCards / users.length) // Distribute workdays fairly
 
     users.forEach((user) => {
-      if (!user || !user.email) return
-      if (timeCards.length >= MAX_TIME_CARDS) return
+      if (timeCards.length >= maxTimeCards) return
 
-      // Randomly select a project
-      const project = projects[Math.floor(Math.random() * projects.length)]
+      // Assign time cards per user
+      projects.forEach((project) => {
+        if (timeCards.length >= maxTimeCards) return
 
-      // Get random workdays (reduced from 5 to workDaysPerUser)
-      const workDays = getWorkdaysBetweenDates(
-        startDate,
-        endDate,
-        workDaysPerUser,
-      )
+        const startDate = project.startDate
+        const endDate = project.completionDate || new Date()
 
-      workDays.forEach((date) => {
-        if (timeCards.length < MAX_TIME_CARDS) {
-          const hours = Math.floor(Math.random() * 6) + 3 // 3-8 hours
-          timeCards.push({
-            user: { connect: { email: user.email } },
-            project: { connect: { id: project.id } },
-            date: date,
-            timeSpent: hours,
-          })
-        }
+        // Generate workdays
+        const workDays = getWorkdaysBetweenDates(
+          startDate,
+          endDate,
+          Math.min(workDaysPerUser, 5),
+        )
+
+        workDays.forEach((date) => {
+          if (timeCards.length < maxTimeCards) {
+            const hours = Math.floor(Math.random() * 6) + 3 // 3-8 hours
+            timeCards.push({
+              user: { connect: { email: user.email } },
+              project: { connect: { id: project.id } },
+              date: date,
+              timeSpent: hours,
+            })
+          }
+        })
       })
     })
 
@@ -312,24 +305,13 @@ async function main() {
   )
   console.log(`Created ${projects.length} projects`)
 
-  // Generate and insert time cards for each project
-  console.log('Generating time cards...')
-  for (const project of projects) {
-    console.log(`\nProcessing time cards for project: ${project.name}`)
-    const timeCards = generateTimeCards(
-      users,
-      projects,
-      project.startDate,
-      project.completionDate,
-    )
-    console.log(`Generated ${timeCards.length} time cards`)
+  console.log('Generating time cards globally...')
+  const timeCards = generateTimeCardsGlobally(users, projects, 120)
+  console.log(`Generated ${timeCards.length} time cards`)
 
-    console.log('Inserting time cards...')
-    await Promise.all(
-      timeCards.map((tc) => prisma.timeCard.create({ data: tc })),
-    )
-    console.log('Time cards inserted successfully')
-  }
+  console.log('Inserting time cards...')
+  await Promise.all(timeCards.map((tc) => prisma.timeCard.create({ data: tc })))
+  console.log('Time cards inserted successfully')
 
   console.log('\nSeeding completed successfully!')
 }
